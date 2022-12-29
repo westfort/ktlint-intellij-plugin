@@ -6,7 +6,7 @@ import java.net.URLClassLoader
 import java.util.ServiceLoader
 
 object KtlintRules {
-    fun find(paths: List<String>, experimental: Boolean, skipErrors: Boolean) = ServiceLoader
+    private fun find(paths: List<String>, experimental: Boolean) = ServiceLoader
         .load(
             RuleSetProviderV2::class.java,
             URLClassLoader(
@@ -14,23 +14,13 @@ object KtlintRules {
                 RuleSetProviderV2::class.java.classLoader,
             ),
         )
-        .mapNotNull {
-            try {
-                it.getRuleProviders()
-            } catch (err: Throwable) {
-                if (!skipErrors) throw err
-                null
-            }
-        }
-        .flatten()
-        .associateBy {
-            val key = it.createNewRuleInstance().id
-            if (key == "standard") "\u0000$key" else key
-        }
-        .filterKeys { experimental || it != "experimental" }
-        .toSortedMap()
-        .map { it.value }
+        .filter { it.id == "standard" || (it.id == "experimental" && experimental) }
         .toSet()
+
+    fun findRules(path: List<String>, experimental: Boolean) = find(path, experimental).map { it.id }
+
+    fun findRuleProviders(path: List<String>, experimental: Boolean) =
+        find(path, experimental).flatMap { it.getRuleProviders() }.toSet()
 
     private fun externalRulesetArray(paths: List<String>) = paths
         .map { it.replaceFirst(Regex("^~"), System.getProperty("user.home")) }

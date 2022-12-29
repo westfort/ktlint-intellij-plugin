@@ -62,11 +62,11 @@ class KtlintConfigForm(private val project: Project, private val config: KtlintC
     fun createComponent(): JComponent {
         // Manually create and insert disabled rules field
         val rules = try {
-            KtlintRules.find(config.externalJarPaths, config.useExperimental, false)
+            KtlintRules.findRules(config.externalJarPaths, config.useExperimental)
         } catch (ruleErr: Throwable) {
             // UI for rule issues?
-            KtlintRules.find(config.externalJarPaths, config.useExperimental, true)
-        }.map { it.createNewRuleInstance().id }
+            emptyList()
+        }
 
         disabledRules = TextFieldWithAutoCompletion.create(project, rules, false, "")
         disabledRules.toolTipText = ResourceBundle.getBundle("strings").getString("disabledRulesToolTip")

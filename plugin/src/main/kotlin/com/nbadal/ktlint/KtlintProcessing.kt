@@ -9,6 +9,7 @@ import com.pinterest.ktlint.core.LintError
 import com.pinterest.ktlint.core.api.EditorConfigOverride.Companion.EMPTY_EDITOR_CONFIG_OVERRIDE
 import com.pinterest.ktlint.core.api.EditorConfigOverride.Companion.plus
 import com.pinterest.ktlint.core.api.KtLintParseException
+import com.pinterest.ktlint.core.api.KtLintRuleException
 import com.pinterest.ktlint.core.api.editorconfig.CODE_STYLE_PROPERTY
 import com.pinterest.ktlint.core.api.editorconfig.CodeStyleValue
 import com.pinterest.ktlint.core.api.editorconfig.RuleExecution
@@ -54,11 +55,12 @@ internal fun doLint(
     val baselineErrors =
         config.baselinePath?.let { loadBaseline(it).baselineRules?.get(projectRelativePath) } ?: emptyList()
 
+    val correctedErrors = mutableListOf<LintError>()
     val uncorrectedErrors = mutableListOf<LintError>()
     val ignoredErrors = mutableListOf<LintError>()
 
     val ruleProviders = try {
-        KtlintRules.find(config.externalJarPaths, config.useExperimental, false)
+        KtlintRules.findRuleProviders(config.externalJarPaths, config.useExperimental)
     } catch (err: Throwable) {
         KtlintNotifier.notifyErrorWithSettings(file.project, "Error in ruleset", err.toString())
         return emptyLintResult()
@@ -74,7 +76,18 @@ internal fun doLint(
 
     try {
         if (format) {
-            val results = engine.format(file.text)
+            val results = engine.format(
+                file.text,
+                Path(fileName),
+            ) { error, corrected ->
+                if (corrected) {
+                    correctedErrors.add(error)
+                } else if (!baselineErrors.contains(error)) {
+                    uncorrectedErrors.add(error)
+                } else {
+                    ignoredErrors.add(error)
+                }
+            }
             WriteCommandAction.runWriteCommandAction(
                 file.project,
                 "Format with ktlint",
@@ -91,28 +104,31 @@ internal fun doLint(
             )
         } else {
             engine.lint(
-                code = file.text,
-                filePath = Path(fileName),
-                callback = { error ->
-                    if (!baselineErrors.contains(error)) {
-                        uncorrectedErrors.add(error)
-                    } else {
-                        ignoredErrors.add(error)
-                    }
-                },
-            )
+                file.text,
+                Path(fileName),
+            ) { error ->
+                if (!baselineErrors.contains(error)) {
+                    uncorrectedErrors.add(error)
+                } else {
+                    ignoredErrors.add(error)
+                }
+            }
         }
     } catch (pe: KtLintParseException) {
         // TODO: report to rollbar?
         return emptyLintResult()
+    } catch (re: KtLintRuleException) {
+        // No valid rules were passed
+        return emptyLintResult()
     }
 
-    return LintResult(uncorrectedErrors, ignoredErrors)
+    return LintResult(correctedErrors, uncorrectedErrors, ignoredErrors)
 }
 
 data class LintResult(
+    val correctedErrors: List<LintError>,
     val uncorrectedErrors: List<LintError>,
     val ignoredErrors: List<LintError>,
 )
 
-fun emptyLintResult() = LintResult(emptyList(), emptyList())
+fun emptyLintResult() = LintResult(emptyList(), emptyList(), emptyList())
