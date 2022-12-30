@@ -14,7 +14,7 @@ object KtlintRules {
                 RuleSetProviderV2::class.java.classLoader,
             ),
         )
-        .filter { it.id == "standard" || (it.id == "experimental" && experimental) }
+        .filterNot { it.id == "experimental" && !experimental }
         .toSet()
 
     fun findRules(path: List<String>, experimental: Boolean) = find(path, experimental).map { it.id }
